@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"syscall"
@@ -28,13 +30,17 @@ import (
 
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/conjure/witchcraft/api/logging"
+	"github.com/palantir/witchcraft-go-logging/wlog"
 	"github.com/palantir/witchcraft-go-logging/wlog/auditlog/audit2log"
+	"github.com/palantir/witchcraft-go-logging/wlog/diaglog/diag1log"
 	"github.com/palantir/witchcraft-go-logging/wlog/evtlog/evt2log"
 	"github.com/palantir/witchcraft-go-logging/wlog/metriclog/metric1log"
+	"github.com/palantir/witchcraft-go-logging/wlog/reqlog/req2log"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"github.com/palantir/witchcraft-go-logging/wlog/trclog/trc1log"
 	"github.com/palantir/witchcraft-go-server/config"
 	"github.com/palantir/witchcraft-go-server/witchcraft"
+	"github.com/palantir/witchcraft-go-server/witchcraft/internal/metricloggers"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -203,6 +209,44 @@ func TestServer_Start_WithPortInUse(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Errorf("server stayed up despite its port already being in use")
 	}
+}
+
+func TestServer_MetricWriter(t *testing.T) {
+	metricWriter := metricloggers.NewMetricWriter(os.Stdout, "service")
+
+	superLongLogLine := "super long svclog line"
+	for i := 0; i < 15; i++ {
+		superLongLogLine += " " + superLongLogLine
+	}
+
+	svclog := svc1log.New(metricWriter, wlog.DebugLevel)
+	svclog.Info(superLongLogLine)
+	svclog.Warn(superLongLogLine)
+	svclog.Debug(superLongLogLine)
+	svclog.Error(superLongLogLine)
+
+	evtLogger := evt2log.New(metricWriter)
+	evtLogger.Event(superLongLogLine)
+
+	metricLogger := metric1log.New(metricWriter)
+	metricLogger.Metric("name", metric1log.MetricTypeKey)
+
+	trcLogger := trc1log.New(metricWriter)
+	trcLogger.Log(wtracing.SpanModel{Name: superLongLogLine})
+
+	auditLogger := audit2log.New(metricWriter)
+	auditLogger.Audit(superLongLogLine, audit2log.AuditResultSuccess)
+
+	diagLogger := diag1log.New(metricWriter)
+	diagLogger.Diagnostic(logging.Diagnostic{})
+
+	reqLogger := req2log.New(metricWriter)
+	reqLogger.Request(req2log.Request{Request: &http.Request{
+		URL:  &url.URL{},
+		Host: superLongLogLine,
+	}})
+
+	require.Equal(t, 10, metricWriter.GetCount())
 }
 
 func TestServer_Start_WithStop(t *testing.T) {

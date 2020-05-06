@@ -25,12 +25,14 @@ var _ io.Writer = (*metricWriter)(nil)
 type MetricWriter interface {
 	io.Writer
 	SetMetricRegistry(metrics.Registry)
+	GetCount() int
 }
 
 type metricWriter struct {
 	writer   io.Writer
 	typ      string
 	recorder metricRecorder
+	count    int
 }
 
 func NewMetricWriter(writer io.Writer, typ string) MetricWriter {
@@ -38,7 +40,12 @@ func NewMetricWriter(writer io.Writer, typ string) MetricWriter {
 		writer:   writer,
 		typ:      typ,
 		recorder: nil,
+		count:    0,
 	}
+}
+
+func (m *metricWriter) GetCount() int {
+	return m.count
 }
 
 func (m *metricWriter) SetMetricRegistry(registry metrics.Registry) {
@@ -46,6 +53,8 @@ func (m *metricWriter) SetMetricRegistry(registry metrics.Registry) {
 }
 
 func (m *metricWriter) Write(p []byte) (int, error) {
+	m.count++
+
 	n, err := m.writer.Write(p)
 	if m.recorder != nil {
 		// Commented out because I still need to fix the integration tests if we chose this approach
