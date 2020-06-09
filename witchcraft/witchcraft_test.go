@@ -40,6 +40,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestOriginFromCallLine(t *testing.T) {
+	testLogMessage := "log!"
+	logOutputBuffer := &bytes.Buffer{}
+	err := witchcraft.NewServer().
+		WithInitFunc(func(ctx context.Context, info witchcraft.InitInfo) (cleanup func(), rErr error) {
+			ctx = svc1log.WithLoggerParams(ctx, svc1log.OriginFromCallLine())
+			svc1log.FromContext(ctx).Info(testLogMessage)
+			return nil, werror.ErrorWithContextParams(ctx, "must error to get Start to return!")
+		}).
+		WithInstallConfig(config.Install{UseConsoleLog: true}).
+		WithRuntimeConfig(config.Runtime{}).
+		WithLoggerStdoutWriter(logOutputBuffer).
+		WithECVKeyProvider(witchcraft.ECVKeyNoOp()).
+		WithDisableGoRuntimeMetrics().
+		WithSelfSignedCertificate().
+		Start()
+
+	// Requires an error so that `Start` will return
+	require.Error(t, err)
+
+	svc1LogLines := getLogMessagesOfType(t, "service.1", logOutputBuffer.Bytes())
+	for _, line := range svc1LogLines {
+		var log logging.ServiceLogV1
+		require.NoError(t, json.Unmarshal(line, &log))
+		if log.Message == testLogMessage {
+			require.NotContains(t, *log.Origin, "metricloggers")
+		}
+	}
+}
+
 // TestFatalErrorLogging verifies that the server logs errors and panics before returning.
 func TestFatalErrorLogging(t *testing.T) {
 	for _, test := range []struct {
